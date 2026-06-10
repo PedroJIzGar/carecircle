@@ -2,11 +2,12 @@ package com.carecircle.api.shared.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
@@ -16,15 +17,18 @@ public class SecurityConfig {
      * Defines the temporary baseline security policy for the backend bootstrap.
      *
      * <p>Public endpoints are limited to operational health and API documentation.
-     * Supabase JWT validation is intentionally added later, once the user domain is
-     * in place.</p>
+     * Supabase JWT validation is handled by the OAuth2 Resource Server filter.</p>
      *
      * @param http Spring Security HTTP configuration builder.
+     * @param jwtAuthenticationConverter converter used for validated Supabase JWTs.
      * @return stateless security filter chain.
      * @throws Exception if Spring Security cannot build the filter chain.
      */
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter
+    ) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -38,24 +42,12 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter))
+                )
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 .build();
-    }
-
-    /**
-     * Prevents Spring Boot from generating a default development user.
-     *
-     * <p>CareCircle does not use local username/password authentication. This bean
-     * will become unnecessary once JWT resource server authentication is configured.</p>
-     *
-     * @return user details service that never resolves users.
-     */
-    @Bean
-    UserDetailsService userDetailsService() {
-        return username -> {
-            throw new UsernameNotFoundException(username);
-        };
     }
 }
