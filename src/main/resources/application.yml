@@ -12,7 +12,7 @@ spring:
     password: ${DB_PASSWORD:carecircle}
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: validate
     open-in-view: false
   flyway:
     enabled: true
