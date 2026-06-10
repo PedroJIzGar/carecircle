@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: carecircle-postgres
+    environment:
+      POSTGRES_DB: carecircle
+      POSTGRES_USER: carecircle
+      POSTGRES_PASSWORD: carecircle
+    ports:
+      - "5433:5432"
+    volumes:
+      - carecircle-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carecircle -d carecircle"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  carecircle-postgres-data:

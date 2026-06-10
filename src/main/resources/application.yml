@@ -1,0 +1,40 @@
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: carecircle-api
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:carecircle}
+    username: ${DB_USERNAME:carecircle}
+    password: ${DB_PASSWORD:carecircle}
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+carecircle:
+  supabase:
+    issuer: ${SUPABASE_ISSUER:}
+    jwks-uri: ${SUPABASE_JWKS_URI:}
+    audience: ${SUPABASE_AUDIENCE:authenticated}
