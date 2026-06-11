@@ -75,12 +75,31 @@ through `GlobalExceptionHandler`.
 - `409`: valid request conflicts with current state.
 - `500`: unexpected server-side failure with a generic message.
 
+## Exception Usage Rules
+
+Use these rules in new modules:
+
+- Use Jakarta Validation annotations in request DTOs for simple field validation.
+- Use `InvalidRequestException` when a syntactically valid request violates an expected API rule.
+- Use `ResourceNotFoundException` when a resource does not exist or must be hidden from the current user.
+- Use `ForbiddenOperationException` when the authenticated user can see the resource but cannot perform the operation.
+- Use `ResourceConflictException` when the request is valid but conflicts with the current resource state.
+- Use `InvalidAuthenticationClaimsException` when a validated JWT lacks the identity claims CareCircle requires.
+- Do not build error response bodies inside controllers.
+
+Current examples:
+
+- `CareTaskService` throws `InvalidRequestException` for invalid task update combinations.
+- `UserService` throws `InvalidAuthenticationClaimsException` when Supabase claims are incomplete.
+
 ## Files Changed
 
+- `src/main/java/com/carecircle/api/auth/security/InvalidAuthenticationClaimsException.java`
 - `src/main/java/com/carecircle/api/shared/exception/ApiErrorResponse.java`
 - `src/main/java/com/carecircle/api/shared/exception/ApiFieldError.java`
 - `src/main/java/com/carecircle/api/shared/exception/ApiErrorCode.java`
 - `src/main/java/com/carecircle/api/shared/exception/GlobalExceptionHandler.java`
+- `src/main/java/com/carecircle/api/shared/exception/InvalidRequestException.java`
 - `src/main/java/com/carecircle/api/shared/exception/SecurityErrorResponseHandler.java`
 - `src/main/java/com/carecircle/api/shared/config/SecurityConfig.java`
 - `src/test/java/com/carecircle/api/shared/ApiErrorHandlingTests.java`
@@ -122,3 +141,4 @@ The tests cover:
 - invalid path variables
 - unknown routes
 - missing Bearer token
+- invalid authenticated claims

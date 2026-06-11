@@ -66,6 +66,19 @@ class AuthControllerTests {
     @Test
     void meRequiresBearerAuthentication() throws Exception {
         mockMvc.perform(get("/auth/me"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"))
+                .andExpect(jsonPath("$.traceId", notNullValue()));
+    }
+
+    @Test
+    void meRejectsJwtWithoutRequiredEmailClaim() throws Exception {
+        mockMvc.perform(get("/auth/me")
+                        .with(jwt().jwt(token -> token.subject(UUID.randomUUID().toString()))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"))
+                .andExpect(jsonPath("$.message").value("Authentication is required or token is invalid."))
+                .andExpect(jsonPath("$.traceId", notNullValue()));
     }
 }

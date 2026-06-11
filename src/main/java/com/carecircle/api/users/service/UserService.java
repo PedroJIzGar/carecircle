@@ -1,5 +1,6 @@
 package com.carecircle.api.users.service;
 
+import com.carecircle.api.auth.security.InvalidAuthenticationClaimsException;
 import com.carecircle.api.auth.dto.SupabaseUserClaims;
 import com.carecircle.api.users.dto.UserResponse;
 import com.carecircle.api.users.entity.User;
@@ -62,13 +63,13 @@ public class UserService {
 
     private void validateClaims(SupabaseUserClaims claims) {
         if (claims == null) {
-            throw new IllegalArgumentException("Supabase claims are required.");
+            throw new InvalidAuthenticationClaimsException("Supabase claims are required.");
         }
         if (!StringUtils.hasText(claims.supabaseUserId())) {
-            throw new IllegalArgumentException("Supabase user id is required.");
+            throw new InvalidAuthenticationClaimsException("Supabase user id is required.");
         }
         if (!StringUtils.hasText(claims.email())) {
-            throw new IllegalArgumentException("Supabase email is required.");
+            throw new InvalidAuthenticationClaimsException("Supabase email is required.");
         }
     }
 

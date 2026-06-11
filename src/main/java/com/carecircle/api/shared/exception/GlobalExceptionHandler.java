@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -73,6 +74,26 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles authentication failures raised inside controller execution.
+     *
+     * @param exception authentication exception.
+     * @param request current HTTP request.
+     * @return unauthorized response.
+     */
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ApiErrorResponse> handleAuthentication(
+            AuthenticationException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(
+                HttpStatus.UNAUTHORIZED,
+                ApiErrorCode.AUTHENTICATION_REQUIRED,
+                "Authentication is required or token is invalid.",
+                request
+        );
+    }
+
+    /**
      * Handles resources that do not exist or are not visible to the user.
      *
      * @param exception not-found exception.
@@ -103,7 +124,22 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Handles invalid input or invalid normalized authentication claims.
+     * Handles expected invalid request rules raised by application services.
+     *
+     * @param exception invalid request exception.
+     * @param request current HTTP request.
+     * @return bad request response.
+     */
+    @ExceptionHandler(InvalidRequestException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidRequest(
+            InvalidRequestException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.VALIDATION_ERROR, exception.getMessage(), request);
+    }
+
+    /**
+     * Handles invalid input raised by framework or defensive argument checks.
      *
      * @param exception validation exception.
      * @param request current HTTP request.

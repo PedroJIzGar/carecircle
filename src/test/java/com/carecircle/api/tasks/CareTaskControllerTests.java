@@ -27,6 +27,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -570,9 +571,11 @@ class CareTaskControllerTests {
                                 {
                                   "title": " "
                                 }
-                                """))
+                """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Task title must not be blank."));
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("Task title must not be blank."))
+                .andExpect(jsonPath("$.traceId", notNullValue()));
     }
 
     @Test
@@ -595,10 +598,12 @@ class CareTaskControllerTests {
                                   "description": "New description",
                                   "clearDescription": true
                                 }
-                                """))
+                """))
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.message")
-                        .value("description cannot be set and cleared in the same request."));
+                        .value("description cannot be set and cleared in the same request."))
+                .andExpect(jsonPath("$.traceId", notNullValue()));
     }
 
     @Test

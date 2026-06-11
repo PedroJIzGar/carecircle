@@ -7,6 +7,7 @@ import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.repository.CircleMemberRepository;
 import com.carecircle.api.members.service.CircleMembershipAccessService;
 import com.carecircle.api.shared.exception.ForbiddenOperationException;
+import com.carecircle.api.shared.exception.InvalidRequestException;
 import com.carecircle.api.shared.exception.ResourceConflictException;
 import com.carecircle.api.shared.exception.ResourceNotFoundException;
 import com.carecircle.api.tasks.dto.CreateTaskRequest;
@@ -251,7 +252,7 @@ public class CareTaskService {
     private String normalizeRequired(String value) {
         String normalized = value.trim();
         if (!StringUtils.hasText(normalized)) {
-            throw new IllegalArgumentException("Task title must not be blank.");
+            throw new InvalidRequestException("Task title must not be blank.");
         }
         return normalized;
     }
@@ -262,16 +263,16 @@ public class CareTaskService {
 
     private void validateUpdateRequest(UpdateTaskRequest request) {
         if (isTrue(request.clearDescription()) && request.description() != null) {
-            throw new IllegalArgumentException("description cannot be set and cleared in the same request.");
+            throw new InvalidRequestException("description cannot be set and cleared in the same request.");
         }
         if (isTrue(request.clearDueAt()) && request.dueAt() != null) {
-            throw new IllegalArgumentException("dueAt cannot be set and cleared in the same request.");
+            throw new InvalidRequestException("dueAt cannot be set and cleared in the same request.");
         }
         if (isTrue(request.clearAssignment()) && request.assignedToUserId() != null) {
-            throw new IllegalArgumentException("assignedToUserId cannot be set and cleared in the same request.");
+            throw new InvalidRequestException("assignedToUserId cannot be set and cleared in the same request.");
         }
         if (!hasAnyUpdateField(request)) {
-            throw new IllegalArgumentException("At least one task field must be provided.");
+            throw new InvalidRequestException("At least one task field must be provided.");
         }
     }
 
