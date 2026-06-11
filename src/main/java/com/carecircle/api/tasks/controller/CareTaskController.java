@@ -4,6 +4,7 @@ import com.carecircle.api.auth.dto.SupabaseUserClaims;
 import com.carecircle.api.auth.security.CurrentUserProvider;
 import com.carecircle.api.tasks.dto.CreateTaskRequest;
 import com.carecircle.api.tasks.dto.TaskResponse;
+import com.carecircle.api.tasks.dto.UpdateTaskRequest;
 import com.carecircle.api.tasks.service.CareTaskService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -12,6 +13,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -71,5 +73,28 @@ public class CareTaskController {
     public List<TaskResponse> listTasks(@PathVariable UUID circleId) {
         SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
         return careTaskService.listTasks(claims, circleId);
+    }
+
+    /**
+     * Updates editable fields of an open care circle task.
+     *
+     * @param circleId requested care circle identifier.
+     * @param taskId requested task identifier.
+     * @param request validated task update request.
+     * @return updated task response.
+     */
+    @PatchMapping("/{taskId}")
+    @Operation(
+            summary = "Update a care circle task",
+            description = "Updates editable fields of an OPEN task when the authenticated user is MAIN_CAREGIVER or COLLABORATOR.",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    public TaskResponse updateTask(
+            @PathVariable UUID circleId,
+            @PathVariable UUID taskId,
+            @Valid @RequestBody UpdateTaskRequest request
+    ) {
+        SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
+        return careTaskService.updateTask(claims, circleId, taskId, request);
     }
 }

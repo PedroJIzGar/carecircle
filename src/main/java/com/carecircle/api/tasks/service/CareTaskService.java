@@ -7,11 +7,14 @@ import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.repository.CircleMemberRepository;
 import com.carecircle.api.members.service.CircleMembershipAccessService;
 import com.carecircle.api.shared.exception.ForbiddenOperationException;
+import com.carecircle.api.shared.exception.ResourceConflictException;
 import com.carecircle.api.shared.exception.ResourceNotFoundException;
 import com.carecircle.api.tasks.dto.CreateTaskRequest;
 import com.carecircle.api.tasks.dto.TaskResponse;
+import com.carecircle.api.tasks.dto.UpdateTaskRequest;
 import com.carecircle.api.tasks.entity.CareTask;
 import com.carecircle.api.tasks.entity.TaskPriority;
+import com.carecircle.api.tasks.entity.TaskStatus;
 import com.carecircle.api.tasks.mapper.CareTaskMapper;
 import com.carecircle.api.tasks.repository.CareTaskRepository;
 import com.carecircle.api.users.entity.User;
@@ -35,6 +38,8 @@ public class CareTaskService {
 
     private static final String CREATE_FORBIDDEN_MESSAGE =
             "Only main caregivers and collaborators can create care circle tasks.";
+    private static final String UPDATE_FORBIDDEN_MESSAGE =
+            "Only main caregivers and collaborators can update care circle tasks.";
     private static final Comparator<CareTask> TASK_LIST_ORDER = Comparator
             .comparingInt((CareTask task) -> getStatusOrder(task.getStatus()))
             .thenComparing(CareTaskService::getDueAtBucket)
@@ -99,6 +104,66 @@ public class CareTaskService {
                 .toList();
     }
 
+    /**
+     * Updates editable fields of an open task.
+     *
+     * @param claims normalized claims extracted from a validated Supabase JWT.
+     * @param careCircleId requested care circle identifier.
+     * @param taskId requested task identifier.
+     * @param request validated task update request.
+     * @return updated task response.
+     */
+    @Transactional
+    public TaskResponse updateTask(
+            SupabaseUserClaims claims,
+            UUID careCircleId,
+            UUID taskId,
+            UpdateTaskRequest request
+    ) {
+        User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
+        CircleMember currentMembership = circleMembershipAccessService.getActiveMembershipOrThrow(
+                careCircleId,
+                currentUser
+        );
+
+        if (currentMembership.getRole() == CircleRole.OBSERVER) {
+            throw new ForbiddenOperationException(UPDATE_FORBIDDEN_MESSAGE);
+        }
+
+        validateUpdateRequest(request);
+
+        CareTask task = careTaskRepository.findByIdAndCareCircle_Id(taskId, careCircleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found."));
+
+        if (task.getStatus() != TaskStatus.OPEN) {
+            throw new ResourceConflictException("Only open tasks can be updated.");
+        }
+
+        if (request.title() != null) {
+            task.setTitle(normalizeRequired(request.title()));
+        }
+        if (isTrue(request.clearDescription())) {
+            task.setDescription(null);
+        } else if (request.description() != null) {
+            task.setDescription(normalizeOptional(request.description()));
+        }
+        if (request.priority() != null) {
+            task.setPriority(request.priority());
+        }
+        if (isTrue(request.clearDueAt())) {
+            task.setDueAt(null);
+        } else if (request.dueAt() != null) {
+            task.setDueAt(request.dueAt());
+        }
+        if (isTrue(request.clearAssignment())) {
+            task.setAssignedToUser(null);
+        } else if (request.assignedToUserId() != null) {
+            task.setAssignedToUser(resolveAssignedUser(careCircleId, request.assignedToUserId()));
+        }
+
+        return careTaskMapper.toResponse(careTaskRepository.save(task));
+    }
+
     private User resolveAssignedUser(UUID careCircleId, UUID assignedToUserId) {
         if (assignedToUserId == null) {
             return null;
@@ -114,14 +179,48 @@ public class CareTaskService {
     }
 
     private String normalizeRequired(String value) {
-        return value.trim();
+        String normalized = value.trim();
+        if (!StringUtils.hasText(normalized)) {
+            throw new IllegalArgumentException("Task title must not be blank.");
+        }
+        return normalized;
     }
 
     private String normalizeOptional(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    private static int getStatusOrder(com.carecircle.api.tasks.entity.TaskStatus status) {
+    private void validateUpdateRequest(UpdateTaskRequest request) {
+        if (isTrue(request.clearDescription()) && request.description() != null) {
+            throw new IllegalArgumentException("description cannot be set and cleared in the same request.");
+        }
+        if (isTrue(request.clearDueAt()) && request.dueAt() != null) {
+            throw new IllegalArgumentException("dueAt cannot be set and cleared in the same request.");
+        }
+        if (isTrue(request.clearAssignment()) && request.assignedToUserId() != null) {
+            throw new IllegalArgumentException("assignedToUserId cannot be set and cleared in the same request.");
+        }
+        if (!hasAnyUpdateField(request)) {
+            throw new IllegalArgumentException("At least one task field must be provided.");
+        }
+    }
+
+    private boolean hasAnyUpdateField(UpdateTaskRequest request) {
+        return request.title() != null
+                || request.description() != null
+                || request.priority() != null
+                || request.dueAt() != null
+                || request.assignedToUserId() != null
+                || isTrue(request.clearDescription())
+                || isTrue(request.clearDueAt())
+                || isTrue(request.clearAssignment());
+    }
+
+    private boolean isTrue(Boolean value) {
+        return Boolean.TRUE.equals(value);
+    }
+
+    private static int getStatusOrder(TaskStatus status) {
         return switch (status) {
             case OPEN -> 0;
             case COMPLETED -> 1;

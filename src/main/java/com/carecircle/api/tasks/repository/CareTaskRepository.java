@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -21,4 +22,15 @@ public interface CareTaskRepository extends JpaRepository<CareTask, UUID> {
      */
     @EntityGraph(attributePaths = {"careCircle", "assignedToUser", "createdByUser", "completedByUser"})
     List<CareTask> findByCareCircle_Id(UUID careCircleId);
+
+    /**
+     * Finds one task by id and care circle id, eagerly loading relations needed
+     * by authorization-safe responses.
+     *
+     * @param id task identifier.
+     * @param careCircleId care circle identifier.
+     * @return matching task when it belongs to the requested circle.
+     */
+    @EntityGraph(attributePaths = {"careCircle", "assignedToUser", "createdByUser", "completedByUser"})
+    Optional<CareTask> findByIdAndCareCircle_Id(UUID id, UUID careCircleId);
 }
