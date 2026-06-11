@@ -1,5 +1,6 @@
 package com.carecircle.api.shared.config;
 
+import com.carecircle.api.shared.exception.SecurityErrorResponseHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -27,11 +28,16 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter
+            Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter,
+            SecurityErrorResponseHandler securityErrorResponseHandler
     ) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint(securityErrorResponseHandler)
+                        .accessDeniedHandler(securityErrorResponseHandler)
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/actuator/health",
