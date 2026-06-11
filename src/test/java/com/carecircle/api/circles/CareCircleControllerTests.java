@@ -26,6 +26,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -49,6 +50,170 @@ class CareCircleControllerTests {
 
     @Autowired
     private CircleMemberRepository circleMemberRepository;
+
+    @Test
+    void updateCareCircleUpdatesBasicsWhenCurrentUserIsMainCaregiver() throws Exception {
+        User currentUser = userRepository.save(new User(
+                UUID.randomUUID().toString(),
+                "patch-main-" + UUID.randomUUID() + "@example.com"
+        ));
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Old family", currentUser));
+        careCircle.setDescription("Old description");
+        elderProfileRepository.save(new ElderProfile(careCircle, "Patch Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, currentUser, CircleRole.MAIN_CAREGIVER));
+
+        mockMvc.perform(patch("/circles/{circleId}", careCircle.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(currentUser.getSupabaseUserId())
+                                .claim("email", currentUser.getEmail())
+                        ))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Updated family",
+                                  "description": "Updated description"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(careCircle.getId().toString()))
+                .andExpect(jsonPath("$.name").value("Updated family"))
+                .andExpect(jsonPath("$.description").value("Updated description"))
+                .andExpect(jsonPath("$.currentMembership.role").value("MAIN_CAREGIVER"));
+
+        CareCircle updatedCircle = careCircleRepository.findById(careCircle.getId()).orElseThrow();
+        assertThat(updatedCircle.getName()).isEqualTo("Updated family");
+        assertThat(updatedCircle.getDescription()).isEqualTo("Updated description");
+    }
+
+    @Test
+    void updateCareCircleCanClearDescriptionWithBlankValue() throws Exception {
+        User currentUser = userRepository.save(new User(
+                UUID.randomUUID().toString(),
+                "patch-clear-" + UUID.randomUUID() + "@example.com"
+        ));
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Clear family", currentUser));
+        careCircle.setDescription("Description to clear");
+        elderProfileRepository.save(new ElderProfile(careCircle, "Clear Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, currentUser, CircleRole.MAIN_CAREGIVER));
+
+        mockMvc.perform(patch("/circles/{circleId}", careCircle.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(currentUser.getSupabaseUserId())
+                                .claim("email", currentUser.getEmail())
+                        ))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "description": " "
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.description").doesNotExist());
+
+        CareCircle updatedCircle = careCircleRepository.findById(careCircle.getId()).orElseThrow();
+        assertThat(updatedCircle.getDescription()).isNull();
+    }
+
+    @Test
+    void updateCareCircleRejectsCollaborator() throws Exception {
+        User currentUser = userRepository.save(new User(
+                UUID.randomUUID().toString(),
+                "patch-collaborator-" + UUID.randomUUID() + "@example.com"
+        ));
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Collaborator family", currentUser));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Collaborator Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, currentUser, CircleRole.COLLABORATOR));
+
+        mockMvc.perform(patch("/circles/{circleId}", careCircle.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(currentUser.getSupabaseUserId())
+                                .claim("email", currentUser.getEmail())
+                        ))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Blocked update"
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.message").value("Only the main caregiver can update care circle details."));
+    }
+
+    @Test
+    void updateCareCircleReturnsNotFoundWhenUserIsNotActiveMember() throws Exception {
+        User currentUser = userRepository.save(new User(
+                UUID.randomUUID().toString(),
+                "patch-denied-current-" + UUID.randomUUID() + "@example.com"
+        ));
+        User otherUser = userRepository.save(new User(
+                UUID.randomUUID().toString(),
+                "patch-denied-other-" + UUID.randomUUID() + "@example.com"
+        ));
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Patch private family", otherUser));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Patch Private Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, otherUser, CircleRole.MAIN_CAREGIVER));
+
+        mockMvc.perform(patch("/circles/{circleId}", careCircle.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(currentUser.getSupabaseUserId())
+                                .claim("email", currentUser.getEmail())
+                        ))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Hidden update"
+                                }
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    void updateCareCircleValidatesBlankName() throws Exception {
+        mockMvc.perform(patch("/circles/{circleId}", UUID.randomUUID())
+                        .with(jwt().jwt(token -> token
+                                .subject(UUID.randomUUID().toString())
+                                .claim("email", "patch-invalid-" + UUID.randomUUID() + "@example.com")
+                        ))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": " "
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void updateCareCircleRequiresAtLeastOneField() throws Exception {
+        mockMvc.perform(patch("/circles/{circleId}", UUID.randomUUID())
+                        .with(jwt().jwt(token -> token
+                                .subject(UUID.randomUUID().toString())
+                                .claim("email", "patch-empty-" + UUID.randomUUID() + "@example.com")
+                        ))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void updateCareCircleRequiresBearerAuthentication() throws Exception {
+        mockMvc.perform(patch("/circles/{circleId}", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Unauthorized update"
+                                }
+                                """))
+                .andExpect(status().isUnauthorized());
+    }
 
     @Test
     void getCareCircleReturnsCircleWhenCurrentUserHasActiveMembership() throws Exception {

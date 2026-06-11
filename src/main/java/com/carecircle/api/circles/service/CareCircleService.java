@@ -3,6 +3,7 @@ package com.carecircle.api.circles.service;
 import com.carecircle.api.auth.dto.SupabaseUserClaims;
 import com.carecircle.api.circles.dto.CareCircleResponse;
 import com.carecircle.api.circles.dto.CreateCareCircleRequest;
+import com.carecircle.api.circles.dto.UpdateCareCircleRequest;
 import com.carecircle.api.circles.entity.CareCircle;
 import com.carecircle.api.circles.mapper.CareCircleMapper;
 import com.carecircle.api.circles.repository.CareCircleRepository;
@@ -12,7 +13,7 @@ import com.carecircle.api.members.entity.CircleMember;
 import com.carecircle.api.members.entity.CircleMemberStatus;
 import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.repository.CircleMemberRepository;
-import com.carecircle.api.shared.exception.ResourceNotFoundException;
+import com.carecircle.api.members.service.CircleMembershipAccessService;
 import com.carecircle.api.users.entity.User;
 import com.carecircle.api.users.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class CareCircleService {
     private final CareCircleRepository careCircleRepository;
     private final ElderProfileRepository elderProfileRepository;
     private final CircleMemberRepository circleMemberRepository;
+    private final CircleMembershipAccessService circleMembershipAccessService;
     private final CareCircleMapper careCircleMapper;
 
     /**
@@ -131,18 +133,51 @@ public class CareCircleService {
     @Transactional
     public CareCircleResponse getCurrentUserCareCircle(SupabaseUserClaims claims, UUID careCircleId) {
         User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
-
-        CircleMember membership = circleMemberRepository.findByCareCircle_IdAndUser_IdAndStatus(
-                        careCircleId,
-                        currentUser.getId(),
-                        CircleMemberStatus.ACTIVE
-                )
-                .orElseThrow(() -> new ResourceNotFoundException("Care circle not found."));
+        CircleMember membership = circleMembershipAccessService.getActiveMembershipOrThrow(careCircleId, currentUser);
 
         ElderProfile elderProfile = elderProfileRepository.findByCareCircle_Id(careCircleId)
                 .orElseThrow(() -> new IllegalStateException("Care circle is missing its elder profile."));
 
         return careCircleMapper.toResponse(membership.getCareCircle(), elderProfile, membership);
+    }
+
+    /**
+     * Updates care circle basics when the current user is the main caregiver.
+     *
+     * <p>Reading is allowed for any active member, but changing circle-level
+     * data is restricted to MAIN_CAREGIVER for the MVP.</p>
+     *
+     * @param claims normalized claims extracted from a validated Supabase JWT.
+     * @param careCircleId requested care circle identifier.
+     * @param request validated partial update request.
+     * @return updated care circle aggregate.
+     */
+    @Transactional
+    public CareCircleResponse updateCareCircle(
+            SupabaseUserClaims claims,
+            UUID careCircleId,
+            UpdateCareCircleRequest request
+    ) {
+        User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
+        CircleMember membership = circleMembershipAccessService.getMainCaregiverMembershipOrThrow(
+                careCircleId,
+                currentUser,
+                "Only the main caregiver can update care circle details."
+        );
+
+        CareCircle careCircle = membership.getCareCircle();
+        if (request.name() != null) {
+            careCircle.setName(normalizeRequired(request.name()));
+        }
+        if (request.description() != null) {
+            careCircle.setDescription(normalizeOptional(request.description()));
+        }
+
+        CareCircle savedCareCircle = careCircleRepository.save(careCircle);
+        ElderProfile elderProfile = elderProfileRepository.findByCareCircle_Id(careCircleId)
+                .orElseThrow(() -> new IllegalStateException("Care circle is missing its elder profile."));
+
+        return careCircleMapper.toResponse(savedCareCircle, elderProfile, membership);
     }
 
     private ElderProfile getRequiredElderProfile(

@@ -4,6 +4,7 @@ import com.carecircle.api.auth.dto.SupabaseUserClaims;
 import com.carecircle.api.auth.security.CurrentUserProvider;
 import com.carecircle.api.circles.dto.CareCircleResponse;
 import com.carecircle.api.circles.dto.CreateCareCircleRequest;
+import com.carecircle.api.circles.dto.UpdateCareCircleRequest;
 import com.carecircle.api.circles.service.CareCircleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -13,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -83,5 +85,26 @@ public class CareCircleController {
     public CareCircleResponse getCareCircle(@PathVariable UUID circleId) {
         SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
         return careCircleService.getCurrentUserCareCircle(claims, circleId);
+    }
+
+    /**
+     * Updates care circle basics for a circle managed by the current user.
+     *
+     * @param circleId requested care circle identifier.
+     * @param request validated partial update request.
+     * @return updated care circle aggregate.
+     */
+    @PatchMapping("/{circleId}")
+    @Operation(
+            summary = "Update a care circle",
+            description = "Updates care circle basics when the authenticated user is the MAIN_CAREGIVER.",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    public CareCircleResponse updateCareCircle(
+            @PathVariable UUID circleId,
+            @Valid @RequestBody UpdateCareCircleRequest request
+    ) {
+        SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
+        return careCircleService.updateCareCircle(claims, circleId, request);
     }
 }

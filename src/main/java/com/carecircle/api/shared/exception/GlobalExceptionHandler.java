@@ -18,6 +18,21 @@ import java.time.OffsetDateTime;
 public class GlobalExceptionHandler {
 
     /**
+     * Handles operations forbidden for the authenticated user's current role.
+     *
+     * @param exception forbidden operation exception.
+     * @param request current HTTP request.
+     * @return forbidden response.
+     */
+    @ExceptionHandler(ForbiddenOperationException.class)
+    public ResponseEntity<ApiErrorResponse> handleForbiddenOperation(
+            ForbiddenOperationException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.FORBIDDEN, exception.getMessage(), request);
+    }
+
+    /**
      * Handles resources that do not exist or are not visible to the user.
      *
      * @param exception not-found exception.
