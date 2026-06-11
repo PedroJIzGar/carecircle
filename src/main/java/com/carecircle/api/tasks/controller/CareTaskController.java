@@ -97,4 +97,25 @@ public class CareTaskController {
         SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
         return careTaskService.updateTask(claims, circleId, taskId, request);
     }
+
+    /**
+     * Completes an open care circle task.
+     *
+     * @param circleId requested care circle identifier.
+     * @param taskId requested task identifier.
+     * @return completed task response.
+     */
+    @PostMapping("/{taskId}/complete")
+    @Operation(
+            summary = "Complete a care circle task",
+            description = "Marks an OPEN task as COMPLETED when the authenticated user is MAIN_CAREGIVER or COLLABORATOR.",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    public TaskResponse completeTask(
+            @PathVariable UUID circleId,
+            @PathVariable UUID taskId
+    ) {
+        SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
+        return careTaskService.completeTask(claims, circleId, taskId);
+    }
 }

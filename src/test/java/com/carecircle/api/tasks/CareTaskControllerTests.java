@@ -58,6 +58,131 @@ class CareTaskControllerTests {
     private CareTaskRepository careTaskRepository;
 
     @Test
+    void completeTaskMarksOpenTaskCompletedWhenCurrentUserIsCollaborator() throws Exception {
+        User mainCaregiver = createUser("task-complete-main", "Task Complete Main");
+        User collaborator = createUser("task-complete-collaborator", "Task Complete Collaborator");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task complete family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Complete Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        circleMemberRepository.save(new CircleMember(careCircle, collaborator, CircleRole.COLLABORATOR));
+        CareTask task = careTaskRepository.save(new CareTask(careCircle, "Complete this task", mainCaregiver));
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/complete", careCircle.getId(), task.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(collaborator.getSupabaseUserId())
+                                .claim("email", collaborator.getEmail())
+                        )))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(task.getId().toString()))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.completedByUserId").value(collaborator.getId().toString()))
+                .andExpect(jsonPath("$.completedAt").isNotEmpty());
+
+        assertThat(careTaskRepository.findById(task.getId()))
+                .isPresent()
+                .get()
+                .satisfies(completedTask -> {
+                    assertThat(completedTask.getStatus()).isEqualTo(TaskStatus.COMPLETED);
+                    assertThat(completedTask.getCompletedAt()).isNotNull();
+                    assertThat(completedTask.getCompletedByUser().getId()).isEqualTo(collaborator.getId());
+                });
+    }
+
+    @Test
+    void completeTaskRejectsObserverRequester() throws Exception {
+        User mainCaregiver = createUser("task-complete-observer-main", "Task Complete Observer Main");
+        User observer = createUser("task-complete-observer-user", "Task Complete Observer User");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task complete observer family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Complete Observer Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        circleMemberRepository.save(new CircleMember(careCircle, observer, CircleRole.OBSERVER));
+        CareTask task = careTaskRepository.save(new CareTask(careCircle, "Observer complete blocked task", mainCaregiver));
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/complete", careCircle.getId(), task.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(observer.getSupabaseUserId())
+                                .claim("email", observer.getEmail())
+                        )))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.message")
+                        .value("Only main caregivers and collaborators can complete care circle tasks."));
+    }
+
+    @Test
+    void completeTaskReturnsNotFoundWhenRequesterIsOutsideCircle() throws Exception {
+        User mainCaregiver = createUser("task-complete-outside-main", "Task Complete Outside Main");
+        User outsideUser = createUser("task-complete-outside-user", "Task Complete Outside User");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task complete outside family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Complete Outside Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        CareTask task = careTaskRepository.save(new CareTask(careCircle, "Private complete task", mainCaregiver));
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/complete", careCircle.getId(), task.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(outsideUser.getSupabaseUserId())
+                                .claim("email", outsideUser.getEmail())
+                        )))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    void completeTaskReturnsNotFoundWhenTaskBelongsToAnotherCircle() throws Exception {
+        User mainCaregiver = createUser("task-complete-other-main", "Task Complete Other Main");
+        User otherMainCaregiver = createUser("task-complete-other-owner", "Task Complete Other Owner");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task complete current family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Complete Current Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+
+        CareCircle otherCircle = careCircleRepository.save(new CareCircle("Task complete other family", otherMainCaregiver));
+        elderProfileRepository.save(new ElderProfile(otherCircle, "Task Complete Other Elder"));
+        circleMemberRepository.save(new CircleMember(otherCircle, otherMainCaregiver, CircleRole.MAIN_CAREGIVER));
+        CareTask otherTask = careTaskRepository.save(new CareTask(otherCircle, "Other complete task", otherMainCaregiver));
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/complete", careCircle.getId(), otherTask.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(mainCaregiver.getSupabaseUserId())
+                                .claim("email", mainCaregiver.getEmail())
+                        )))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Task not found."));
+    }
+
+    @Test
+    void completeTaskRejectsCompletedTask() throws Exception {
+        User mainCaregiver = createUser("task-complete-done-main", "Task Complete Done Main");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task complete done family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Complete Done Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        CareTask task = new CareTask(careCircle, "Already completed task", mainCaregiver);
+        task.setStatus(TaskStatus.COMPLETED);
+        task.setCompletedAt(OffsetDateTime.now().withNano(0));
+        task.setCompletedByUser(mainCaregiver);
+        CareTask savedTask = careTaskRepository.save(task);
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/complete", careCircle.getId(), savedTask.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(mainCaregiver.getSupabaseUserId())
+                                .claim("email", mainCaregiver.getEmail())
+                        )))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Only open tasks can be completed."));
+    }
+
+    @Test
+    void completeTaskRequiresBearerAuthentication() throws Exception {
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/complete", UUID.randomUUID(), UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void updateTaskUpdatesEditableFieldsWhenCurrentUserIsCollaborator() throws Exception {
         User mainCaregiver = createUser("task-update-main", "Task Update Main");
         User collaborator = createUser("task-update-collaborator", "Task Update Collaborator");

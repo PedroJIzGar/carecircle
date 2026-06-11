@@ -40,6 +40,8 @@ public class CareTaskService {
             "Only main caregivers and collaborators can create care circle tasks.";
     private static final String UPDATE_FORBIDDEN_MESSAGE =
             "Only main caregivers and collaborators can update care circle tasks.";
+    private static final String COMPLETE_FORBIDDEN_MESSAGE =
+            "Only main caregivers and collaborators can complete care circle tasks.";
     private static final Comparator<CareTask> TASK_LIST_ORDER = Comparator
             .comparingInt((CareTask task) -> getStatusOrder(task.getStatus()))
             .thenComparing(CareTaskService::getDueAtBucket)
@@ -160,6 +162,40 @@ public class CareTaskService {
         } else if (request.assignedToUserId() != null) {
             task.setAssignedToUser(resolveAssignedUser(careCircleId, request.assignedToUserId()));
         }
+
+        return careTaskMapper.toResponse(careTaskRepository.save(task));
+    }
+
+    /**
+     * Completes an open task and records who completed it.
+     *
+     * @param claims normalized claims extracted from a validated Supabase JWT.
+     * @param careCircleId requested care circle identifier.
+     * @param taskId requested task identifier.
+     * @return completed task response.
+     */
+    @Transactional
+    public TaskResponse completeTask(SupabaseUserClaims claims, UUID careCircleId, UUID taskId) {
+        User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
+        CircleMember currentMembership = circleMembershipAccessService.getActiveMembershipOrThrow(
+                careCircleId,
+                currentUser
+        );
+
+        if (currentMembership.getRole() == CircleRole.OBSERVER) {
+            throw new ForbiddenOperationException(COMPLETE_FORBIDDEN_MESSAGE);
+        }
+
+        CareTask task = careTaskRepository.findByIdAndCareCircle_Id(taskId, careCircleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found."));
+
+        if (task.getStatus() != TaskStatus.OPEN) {
+            throw new ResourceConflictException("Only open tasks can be completed.");
+        }
+
+        task.setStatus(TaskStatus.COMPLETED);
+        task.setCompletedAt(OffsetDateTime.now());
+        task.setCompletedByUser(currentUser);
 
         return careTaskMapper.toResponse(careTaskRepository.save(task));
     }
