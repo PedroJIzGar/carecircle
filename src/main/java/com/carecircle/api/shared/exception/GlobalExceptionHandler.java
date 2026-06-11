@@ -18,6 +18,21 @@ import java.time.OffsetDateTime;
 public class GlobalExceptionHandler {
 
     /**
+     * Handles expected application conflicts.
+     *
+     * @param exception conflict exception.
+     * @param request current HTTP request.
+     * @return conflict response.
+     */
+    @ExceptionHandler(ResourceConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleResourceConflict(
+            ResourceConflictException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.CONFLICT, exception.getMessage(), request);
+    }
+
+    /**
      * Handles operations forbidden for the authenticated user's current role.
      *
      * @param exception forbidden operation exception.

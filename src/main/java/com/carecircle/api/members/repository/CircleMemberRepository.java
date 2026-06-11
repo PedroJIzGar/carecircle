@@ -57,4 +57,18 @@ public interface CircleMemberRepository extends JpaRepository<CircleMember, UUID
             UUID userId,
             CircleMemberStatus status
     );
+
+    /**
+     * Finds active members for one care circle, eagerly loading the user data
+     * needed by member list responses.
+     *
+     * @param careCircleId care circle identifier.
+     * @param status membership status filter.
+     * @return ordered memberships in the circle.
+     */
+    @EntityGraph(attributePaths = {"user"})
+    List<CircleMember> findByCareCircle_IdAndStatusOrderByCreatedAtAsc(
+            UUID careCircleId,
+            CircleMemberStatus status
+    );
 }
