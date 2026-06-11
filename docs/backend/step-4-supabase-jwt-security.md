@@ -43,6 +43,7 @@ https://project-id.supabase.co/auth/v1/.well-known/jwks.json
 
 Si el proyecto sigue usando el legacy JWT secret simetrico, esta validacion con JWKS no sera suficiente.
 La recomendacion para este backend es usar signing keys asimetricas en Supabase.
+El proyecto actual emite access tokens con `alg=ES256`, por lo que el decoder confia explicitamente en `SignatureAlgorithm.ES256`.
 
 ## Archivos creados
 
