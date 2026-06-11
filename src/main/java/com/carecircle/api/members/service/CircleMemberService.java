@@ -3,8 +3,10 @@ package com.carecircle.api.members.service;
 import com.carecircle.api.auth.dto.SupabaseUserClaims;
 import com.carecircle.api.members.dto.AddCircleMemberRequest;
 import com.carecircle.api.members.dto.CircleMemberResponse;
+import com.carecircle.api.members.dto.UpdateCircleMemberRoleRequest;
 import com.carecircle.api.members.entity.CircleMember;
 import com.carecircle.api.members.entity.CircleMemberStatus;
+import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.mapper.CircleMemberMapper;
 import com.carecircle.api.members.repository.CircleMemberRepository;
 import com.carecircle.api.shared.exception.ResourceConflictException;
@@ -16,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -28,6 +31,8 @@ import java.util.UUID;
 public class CircleMemberService {
 
     private static final String ADD_FORBIDDEN_MESSAGE = "Only the main caregiver can add care circle members.";
+    private static final String UPDATE_FORBIDDEN_MESSAGE = "Only the main caregiver can update care circle member roles.";
+    private static final String REMOVE_FORBIDDEN_MESSAGE = "Only the main caregiver can remove care circle members.";
 
     private final UserService userService;
     private final UserRepository userRepository;
@@ -90,6 +95,83 @@ public class CircleMemberService {
 
         CircleMember newMember = new CircleMember(currentMembership.getCareCircle(), targetUser, request.role());
         return circleMemberMapper.toResponse(circleMemberRepository.save(newMember));
+    }
+
+    /**
+     * Updates a non-owner member role inside a care circle.
+     *
+     * <p>This endpoint intentionally avoids modifying MAIN_CAREGIVER membership.
+     * Main caregiver transfer needs a dedicated workflow with stronger safety
+     * rules.</p>
+     *
+     * @param claims normalized claims extracted from a validated Supabase JWT.
+     * @param careCircleId requested care circle identifier.
+     * @param memberId requested membership identifier.
+     * @param request validated role update request.
+     * @return updated membership response.
+     */
+    @Transactional
+    public CircleMemberResponse updateCircleMemberRole(
+            SupabaseUserClaims claims,
+            UUID careCircleId,
+            UUID memberId,
+            UpdateCircleMemberRoleRequest request
+    ) {
+        User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
+        circleMembershipAccessService.getMainCaregiverMembershipOrThrow(
+                careCircleId,
+                currentUser,
+                UPDATE_FORBIDDEN_MESSAGE
+        );
+
+        CircleMember targetMember = circleMemberRepository.findByIdAndCareCircle_IdAndStatus(
+                        memberId,
+                        careCircleId,
+                        CircleMemberStatus.ACTIVE
+                )
+                .orElseThrow(() -> new ResourceNotFoundException("Care circle member not found."));
+
+        if (targetMember.getRole() == CircleRole.MAIN_CAREGIVER) {
+            throw new ResourceConflictException("Main caregiver role changes require a dedicated flow.");
+        }
+
+        targetMember.setRole(request.role());
+        return circleMemberMapper.toResponse(circleMemberRepository.save(targetMember));
+    }
+
+    /**
+     * Removes a regular member from a care circle using a soft delete.
+     *
+     * <p>The membership row is kept for traceability, but it stops being active
+     * for authorization and list operations.</p>
+     *
+     * @param claims normalized claims extracted from a validated Supabase JWT.
+     * @param careCircleId requested care circle identifier.
+     * @param memberId requested membership identifier.
+     */
+    @Transactional
+    public void removeCircleMember(SupabaseUserClaims claims, UUID careCircleId, UUID memberId) {
+        User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
+        circleMembershipAccessService.getMainCaregiverMembershipOrThrow(
+                careCircleId,
+                currentUser,
+                REMOVE_FORBIDDEN_MESSAGE
+        );
+
+        CircleMember targetMember = circleMemberRepository.findByIdAndCareCircle_IdAndStatus(
+                        memberId,
+                        careCircleId,
+                        CircleMemberStatus.ACTIVE
+                )
+                .orElseThrow(() -> new ResourceNotFoundException("Care circle member not found."));
+
+        if (targetMember.getRole() == CircleRole.MAIN_CAREGIVER) {
+            throw new ResourceConflictException("Main caregiver removal requires a dedicated flow.");
+        }
+
+        targetMember.setStatus(CircleMemberStatus.REMOVED);
+        targetMember.setRemovedAt(OffsetDateTime.now());
+        circleMemberRepository.save(targetMember);
     }
 
     private String normalizeEmail(String email) {
