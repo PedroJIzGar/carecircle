@@ -5,6 +5,7 @@ import com.carecircle.api.circles.repository.CareCircleRepository;
 import com.carecircle.api.elderprofiles.entity.ElderProfile;
 import com.carecircle.api.elderprofiles.repository.ElderProfileRepository;
 import com.carecircle.api.members.entity.CircleMember;
+import com.carecircle.api.members.entity.CircleMemberStatus;
 import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.repository.CircleMemberRepository;
 import com.carecircle.api.tasks.entity.CareTask;
@@ -25,7 +26,9 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -52,6 +55,105 @@ class CareTaskControllerTests {
 
     @Autowired
     private CareTaskRepository careTaskRepository;
+
+    @Test
+    void listTasksReturnsCircleTasksForObserverOrderedByStatusAndDueDate() throws Exception {
+        User mainCaregiver = createUser("task-list-main", "Task List Main");
+        User collaborator = createUser("task-list-collaborator", "Task List Collaborator");
+        User observer = createUser("task-list-observer", "Task List Observer");
+        User otherMainCaregiver = createUser("task-list-other-main", "Task List Other Main");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task list family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task List Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        circleMemberRepository.save(new CircleMember(careCircle, collaborator, CircleRole.COLLABORATOR));
+        circleMemberRepository.save(new CircleMember(careCircle, observer, CircleRole.OBSERVER));
+
+        CareCircle otherCircle = careCircleRepository.save(new CareCircle("Other task list family", otherMainCaregiver));
+        elderProfileRepository.save(new ElderProfile(otherCircle, "Other Task List Elder"));
+        circleMemberRepository.save(new CircleMember(otherCircle, otherMainCaregiver, CircleRole.MAIN_CAREGIVER));
+
+        OffsetDateTime dueAt = OffsetDateTime.now().plusDays(1).withNano(0);
+
+        CareTask completedTask = new CareTask(careCircle, "Completed task", mainCaregiver);
+        completedTask.setStatus(TaskStatus.COMPLETED);
+        completedTask.setCompletedAt(OffsetDateTime.now().withNano(0));
+        completedTask.setCompletedByUser(collaborator);
+        completedTask.setDueAt(dueAt.minusHours(2));
+        careTaskRepository.save(completedTask);
+
+        careTaskRepository.save(new CareTask(careCircle, "Open task without due date", mainCaregiver));
+
+        CareTask dueSoonTask = new CareTask(careCircle, "Open task due soon", mainCaregiver);
+        dueSoonTask.setDueAt(dueAt.minusHours(1));
+        dueSoonTask.setAssignedToUser(collaborator);
+        careTaskRepository.save(dueSoonTask);
+
+        careTaskRepository.save(new CareTask(otherCircle, "Other circle task", otherMainCaregiver));
+
+        mockMvc.perform(get("/circles/{circleId}/tasks", careCircle.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(observer.getSupabaseUserId())
+                                .claim("email", observer.getEmail())
+                        )))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(3)))
+                .andExpect(jsonPath("$[0].title").value("Open task due soon"))
+                .andExpect(jsonPath("$[0].status").value("OPEN"))
+                .andExpect(jsonPath("$[0].assignedToUserId").value(collaborator.getId().toString()))
+                .andExpect(jsonPath("$[1].title").value("Open task without due date"))
+                .andExpect(jsonPath("$[1].status").value("OPEN"))
+                .andExpect(jsonPath("$[2].title").value("Completed task"))
+                .andExpect(jsonPath("$[2].status").value("COMPLETED"))
+                .andExpect(jsonPath("$[?(@.title == 'Other circle task')]", hasSize(0)));
+    }
+
+    @Test
+    void listTasksReturnsNotFoundWhenRequesterIsOutsideCircle() throws Exception {
+        User mainCaregiver = createUser("task-list-outside-main", "Task List Outside Main");
+        User outsideUser = createUser("task-list-outside-user", "Task List Outside User");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task list outside family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task List Outside Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        careTaskRepository.save(new CareTask(careCircle, "Private task", mainCaregiver));
+
+        mockMvc.perform(get("/circles/{circleId}/tasks", careCircle.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(outsideUser.getSupabaseUserId())
+                                .claim("email", outsideUser.getEmail())
+                        )))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    void listTasksReturnsNotFoundWhenCurrentMembershipWasRemoved() throws Exception {
+        User mainCaregiver = createUser("task-list-removed-main", "Task List Removed Main");
+        User removedUser = createUser("task-list-removed-user", "Task List Removed User");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task list removed family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task List Removed Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        CircleMember removedMembership = new CircleMember(careCircle, removedUser, CircleRole.COLLABORATOR);
+        removedMembership.setStatus(CircleMemberStatus.REMOVED);
+        circleMemberRepository.save(removedMembership);
+        careTaskRepository.save(new CareTask(careCircle, "Removed member hidden task", mainCaregiver));
+
+        mockMvc.perform(get("/circles/{circleId}/tasks", careCircle.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(removedUser.getSupabaseUserId())
+                                .claim("email", removedUser.getEmail())
+                        )))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    void listTasksRequiresBearerAuthentication() throws Exception {
+        mockMvc.perform(get("/circles/{circleId}/tasks", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
 
     @Test
     void createTaskCreatesOpenTaskWhenCurrentUserIsMainCaregiver() throws Exception {

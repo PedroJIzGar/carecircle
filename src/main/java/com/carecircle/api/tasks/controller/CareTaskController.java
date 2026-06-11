@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -52,5 +54,22 @@ public class CareTaskController {
     ) {
         SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
         return careTaskService.createTask(claims, circleId, request);
+    }
+
+    /**
+     * Lists tasks visible to the authenticated member of a care circle.
+     *
+     * @param circleId requested care circle identifier.
+     * @return ordered tasks for the requested circle.
+     */
+    @GetMapping
+    @Operation(
+            summary = "List care circle tasks",
+            description = "Returns tasks when the authenticated user is an active member of the care circle.",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    public List<TaskResponse> listTasks(@PathVariable UUID circleId) {
+        SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
+        return careTaskService.listTasks(claims, circleId);
     }
 }

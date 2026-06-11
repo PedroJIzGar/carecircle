@@ -21,6 +21,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.OffsetDateTime;
+import java.util.Comparator;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -32,6 +35,11 @@ public class CareTaskService {
 
     private static final String CREATE_FORBIDDEN_MESSAGE =
             "Only main caregivers and collaborators can create care circle tasks.";
+    private static final Comparator<CareTask> TASK_LIST_ORDER = Comparator
+            .comparingInt((CareTask task) -> getStatusOrder(task.getStatus()))
+            .thenComparing(CareTaskService::getDueAtBucket)
+            .thenComparing(CareTask::getDueAt, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(CareTask::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()));
 
     private final UserService userService;
     private final CircleMembershipAccessService circleMembershipAccessService;
@@ -72,6 +80,25 @@ public class CareTaskService {
         return careTaskMapper.toResponse(careTaskRepository.save(task));
     }
 
+    /**
+     * Lists tasks visible to an active care circle member.
+     *
+     * @param claims normalized claims extracted from a validated Supabase JWT.
+     * @param careCircleId requested care circle identifier.
+     * @return ordered task responses for the circle.
+     */
+    @Transactional(readOnly = true)
+    public List<TaskResponse> listTasks(SupabaseUserClaims claims, UUID careCircleId) {
+        User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
+        circleMembershipAccessService.getActiveMembershipOrThrow(careCircleId, currentUser);
+
+        return careTaskRepository.findByCareCircle_Id(careCircleId)
+                .stream()
+                .sorted(TASK_LIST_ORDER)
+                .map(careTaskMapper::toResponse)
+                .toList();
+    }
+
     private User resolveAssignedUser(UUID careCircleId, UUID assignedToUserId) {
         if (assignedToUserId == null) {
             return null;
@@ -92,5 +119,18 @@ public class CareTaskService {
 
     private String normalizeOptional(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private static int getStatusOrder(com.carecircle.api.tasks.entity.TaskStatus status) {
+        return switch (status) {
+            case OPEN -> 0;
+            case COMPLETED -> 1;
+            case CANCELLED -> 2;
+        };
+    }
+
+    private static int getDueAtBucket(CareTask task) {
+        OffsetDateTime dueAt = task.getDueAt();
+        return dueAt == null ? 1 : 0;
     }
 }
