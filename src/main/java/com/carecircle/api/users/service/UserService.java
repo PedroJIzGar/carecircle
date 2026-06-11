@@ -34,6 +34,21 @@ public class UserService {
      */
     @Transactional
     public UserResponse findOrCreateFromSupabaseClaims(SupabaseUserClaims claims) {
+        return userMapper.toResponse(findOrCreateUserFromSupabaseClaims(claims));
+    }
+
+    /**
+     * Finds the internal user linked to a Supabase account or creates it on first access.
+     *
+     * <p>This method returns the JPA entity for internal domain services that need
+     * to create relationships to the authenticated user. Controllers should still
+     * expose DTOs instead of entities.</p>
+     *
+     * @param claims normalized claims extracted from a validated Supabase JWT.
+     * @return synchronized internal user entity.
+     */
+    @Transactional
+    public User findOrCreateUserFromSupabaseClaims(SupabaseUserClaims claims) {
         validateClaims(claims);
 
         User user = userRepository.findBySupabaseUserId(claims.supabaseUserId())
@@ -42,8 +57,7 @@ public class UserService {
         synchronizeProfile(user, claims);
         user.setLastLoginAt(OffsetDateTime.now());
 
-        User savedUser = userRepository.save(user);
-        return userMapper.toResponse(savedUser);
+        return userRepository.save(user);
     }
 
     private void validateClaims(SupabaseUserClaims claims) {

@@ -4,6 +4,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -28,6 +30,41 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         return buildResponse(HttpStatus.BAD_REQUEST, exception.getMessage(), request);
+    }
+
+    /**
+     * Handles request DTO validation failures.
+     *
+     * @param exception validation exception produced by Jakarta Validation.
+     * @param request current HTTP request.
+     * @return bad request response.
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException exception,
+            HttpServletRequest request
+    ) {
+        String message = exception.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .orElse("Request validation failed.");
+
+        return buildResponse(HttpStatus.BAD_REQUEST, message, request);
+    }
+
+    /**
+     * Handles malformed JSON request bodies.
+     *
+     * @param exception unreadable HTTP message exception.
+     * @param request current HTTP request.
+     * @return bad request response.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.BAD_REQUEST, "Request body is missing or malformed.", request);
     }
 
     /**
