@@ -18,6 +18,21 @@ import java.time.OffsetDateTime;
 public class GlobalExceptionHandler {
 
     /**
+     * Handles resources that do not exist or are not visible to the user.
+     *
+     * @param exception not-found exception.
+     * @param request current HTTP request.
+     * @return not found response.
+     */
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleResourceNotFound(
+            ResourceNotFoundException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.NOT_FOUND, exception.getMessage(), request);
+    }
+
+    /**
      * Handles invalid input or invalid normalized authentication claims.
      *
      * @param exception validation exception.

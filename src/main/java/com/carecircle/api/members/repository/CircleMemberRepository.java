@@ -1,8 +1,11 @@
 package com.carecircle.api.members.repository;
 
 import com.carecircle.api.members.entity.CircleMember;
+import com.carecircle.api.members.entity.CircleMemberStatus;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,4 +31,30 @@ public interface CircleMemberRepository extends JpaRepository<CircleMember, UUID
      * @return true when a membership already exists.
      */
     boolean existsByCareCircle_IdAndUser_Id(UUID careCircleId, UUID userId);
+
+    /**
+     * Finds memberships visible to a user, eagerly loading the circle data needed
+     * by list responses.
+     *
+     * @param userId internal user identifier.
+     * @param status membership status filter.
+     * @return ordered memberships for the user.
+     */
+    @EntityGraph(attributePaths = {"careCircle", "careCircle.createdByUser", "user"})
+    List<CircleMember> findByUser_IdAndStatusOrderByCreatedAtAsc(UUID userId, CircleMemberStatus status);
+
+    /**
+     * Finds one active membership for resource-level authorization checks.
+     *
+     * @param careCircleId care circle identifier.
+     * @param userId internal user identifier.
+     * @param status expected membership status.
+     * @return membership when the user can access the circle.
+     */
+    @EntityGraph(attributePaths = {"careCircle", "careCircle.createdByUser", "user"})
+    Optional<CircleMember> findByCareCircle_IdAndUser_IdAndStatus(
+            UUID careCircleId,
+            UUID userId,
+            CircleMemberStatus status
+    );
 }

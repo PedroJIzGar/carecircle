@@ -9,14 +9,22 @@ import com.carecircle.api.circles.repository.CareCircleRepository;
 import com.carecircle.api.elderprofiles.entity.ElderProfile;
 import com.carecircle.api.elderprofiles.repository.ElderProfileRepository;
 import com.carecircle.api.members.entity.CircleMember;
+import com.carecircle.api.members.entity.CircleMemberStatus;
 import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.repository.CircleMemberRepository;
+import com.carecircle.api.shared.exception.ResourceNotFoundException;
 import com.carecircle.api.users.entity.User;
 import com.carecircle.api.users.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Application service for care circle workflows.
@@ -66,6 +74,87 @@ public class CareCircleService {
         );
 
         return careCircleMapper.toResponse(savedCareCircle, savedElderProfile, currentMembership);
+    }
+
+    /**
+     * Lists care circles visible to the authenticated Supabase user.
+     *
+     * <p>Visibility is based on active circle membership, not on circle ownership.
+     * This keeps the authorization model ready for collaborators and observers.</p>
+     *
+     * @param claims normalized claims extracted from a validated Supabase JWT.
+     * @return care circles where the current user has an active membership.
+     */
+    @Transactional
+    public List<CareCircleResponse> listCurrentUserCareCircles(SupabaseUserClaims claims) {
+        User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
+
+        List<CircleMember> memberships = circleMemberRepository.findByUser_IdAndStatusOrderByCreatedAtAsc(
+                currentUser.getId(),
+                CircleMemberStatus.ACTIVE
+        );
+
+        if (memberships.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> careCircleIds = memberships.stream()
+                .map(membership -> membership.getCareCircle().getId())
+                .toList();
+
+        Map<UUID, ElderProfile> elderProfilesByCircleId = elderProfileRepository.findByCareCircle_IdIn(careCircleIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        elderProfile -> elderProfile.getCareCircle().getId(),
+                        Function.identity()
+                ));
+
+        return memberships.stream()
+                .map(membership -> careCircleMapper.toResponse(
+                        membership.getCareCircle(),
+                        getRequiredElderProfile(elderProfilesByCircleId, membership),
+                        membership
+                ))
+                .toList();
+    }
+
+    /**
+     * Returns one care circle if the authenticated user has active membership.
+     *
+     * <p>A missing membership is treated as not found to avoid exposing whether
+     * a care circle exists to users who cannot access it.</p>
+     *
+     * @param claims normalized claims extracted from a validated Supabase JWT.
+     * @param careCircleId requested care circle identifier.
+     * @return requested care circle aggregate.
+     */
+    @Transactional
+    public CareCircleResponse getCurrentUserCareCircle(SupabaseUserClaims claims, UUID careCircleId) {
+        User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
+
+        CircleMember membership = circleMemberRepository.findByCareCircle_IdAndUser_IdAndStatus(
+                        careCircleId,
+                        currentUser.getId(),
+                        CircleMemberStatus.ACTIVE
+                )
+                .orElseThrow(() -> new ResourceNotFoundException("Care circle not found."));
+
+        ElderProfile elderProfile = elderProfileRepository.findByCareCircle_Id(careCircleId)
+                .orElseThrow(() -> new IllegalStateException("Care circle is missing its elder profile."));
+
+        return careCircleMapper.toResponse(membership.getCareCircle(), elderProfile, membership);
+    }
+
+    private ElderProfile getRequiredElderProfile(
+            Map<UUID, ElderProfile> elderProfilesByCircleId,
+            CircleMember membership
+    ) {
+        UUID careCircleId = membership.getCareCircle().getId();
+        ElderProfile elderProfile = elderProfilesByCircleId.get(careCircleId);
+        if (elderProfile == null) {
+            throw new IllegalStateException("Care circle is missing its elder profile.");
+        }
+        return elderProfile;
     }
 
     private String normalizeRequired(String value) {
