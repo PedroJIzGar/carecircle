@@ -118,4 +118,25 @@ public class CareTaskController {
         SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
         return careTaskService.completeTask(claims, circleId, taskId);
     }
+
+    /**
+     * Cancels an open care circle task.
+     *
+     * @param circleId requested care circle identifier.
+     * @param taskId requested task identifier.
+     * @return cancelled task response.
+     */
+    @PostMapping("/{taskId}/cancel")
+    @Operation(
+            summary = "Cancel a care circle task",
+            description = "Marks an OPEN task as CANCELLED when the authenticated user is MAIN_CAREGIVER or COLLABORATOR.",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    public TaskResponse cancelTask(
+            @PathVariable UUID circleId,
+            @PathVariable UUID taskId
+    ) {
+        SupabaseUserClaims claims = currentUserProvider.getRequiredClaims();
+        return careTaskService.cancelTask(claims, circleId, taskId);
+    }
 }

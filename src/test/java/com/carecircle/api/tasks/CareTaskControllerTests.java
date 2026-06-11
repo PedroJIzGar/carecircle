@@ -58,6 +58,148 @@ class CareTaskControllerTests {
     private CareTaskRepository careTaskRepository;
 
     @Test
+    void cancelTaskMarksOpenTaskCancelledWhenCurrentUserIsMainCaregiver() throws Exception {
+        User mainCaregiver = createUser("task-cancel-main", "Task Cancel Main");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task cancel family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Cancel Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        CareTask task = careTaskRepository.save(new CareTask(careCircle, "Cancel this task", mainCaregiver));
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/cancel", careCircle.getId(), task.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(mainCaregiver.getSupabaseUserId())
+                                .claim("email", mainCaregiver.getEmail())
+                        )))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(task.getId().toString()))
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        assertThat(careTaskRepository.findById(task.getId()))
+                .isPresent()
+                .get()
+                .satisfies(cancelledTask -> {
+                    assertThat(cancelledTask.getStatus()).isEqualTo(TaskStatus.CANCELLED);
+                    assertThat(cancelledTask.getCompletedAt()).isNull();
+                    assertThat(cancelledTask.getCompletedByUser()).isNull();
+                });
+    }
+
+    @Test
+    void cancelTaskRejectsObserverRequester() throws Exception {
+        User mainCaregiver = createUser("task-cancel-observer-main", "Task Cancel Observer Main");
+        User observer = createUser("task-cancel-observer-user", "Task Cancel Observer User");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task cancel observer family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Cancel Observer Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        circleMemberRepository.save(new CircleMember(careCircle, observer, CircleRole.OBSERVER));
+        CareTask task = careTaskRepository.save(new CareTask(careCircle, "Observer cancel blocked task", mainCaregiver));
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/cancel", careCircle.getId(), task.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(observer.getSupabaseUserId())
+                                .claim("email", observer.getEmail())
+                        )))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.message")
+                        .value("Only main caregivers and collaborators can cancel care circle tasks."));
+    }
+
+    @Test
+    void cancelTaskReturnsNotFoundWhenRequesterIsOutsideCircle() throws Exception {
+        User mainCaregiver = createUser("task-cancel-outside-main", "Task Cancel Outside Main");
+        User outsideUser = createUser("task-cancel-outside-user", "Task Cancel Outside User");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task cancel outside family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Cancel Outside Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        CareTask task = careTaskRepository.save(new CareTask(careCircle, "Private cancel task", mainCaregiver));
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/cancel", careCircle.getId(), task.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(outsideUser.getSupabaseUserId())
+                                .claim("email", outsideUser.getEmail())
+                        )))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    void cancelTaskReturnsNotFoundWhenTaskBelongsToAnotherCircle() throws Exception {
+        User mainCaregiver = createUser("task-cancel-other-main", "Task Cancel Other Main");
+        User otherMainCaregiver = createUser("task-cancel-other-owner", "Task Cancel Other Owner");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task cancel current family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Cancel Current Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+
+        CareCircle otherCircle = careCircleRepository.save(new CareCircle("Task cancel other family", otherMainCaregiver));
+        elderProfileRepository.save(new ElderProfile(otherCircle, "Task Cancel Other Elder"));
+        circleMemberRepository.save(new CircleMember(otherCircle, otherMainCaregiver, CircleRole.MAIN_CAREGIVER));
+        CareTask otherTask = careTaskRepository.save(new CareTask(otherCircle, "Other cancel task", otherMainCaregiver));
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/cancel", careCircle.getId(), otherTask.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(mainCaregiver.getSupabaseUserId())
+                                .claim("email", mainCaregiver.getEmail())
+                        )))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Task not found."));
+    }
+
+    @Test
+    void cancelTaskRejectsCompletedTask() throws Exception {
+        User mainCaregiver = createUser("task-cancel-completed-main", "Task Cancel Completed Main");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task cancel completed family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Cancel Completed Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        CareTask task = new CareTask(careCircle, "Completed cancel task", mainCaregiver);
+        task.setStatus(TaskStatus.COMPLETED);
+        task.setCompletedAt(OffsetDateTime.now().withNano(0));
+        task.setCompletedByUser(mainCaregiver);
+        CareTask savedTask = careTaskRepository.save(task);
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/cancel", careCircle.getId(), savedTask.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(mainCaregiver.getSupabaseUserId())
+                                .claim("email", mainCaregiver.getEmail())
+                        )))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Only open tasks can be cancelled."));
+    }
+
+    @Test
+    void cancelTaskRejectsAlreadyCancelledTask() throws Exception {
+        User mainCaregiver = createUser("task-cancel-already-main", "Task Cancel Already Main");
+
+        CareCircle careCircle = careCircleRepository.save(new CareCircle("Task cancel already family", mainCaregiver));
+        elderProfileRepository.save(new ElderProfile(careCircle, "Task Cancel Already Elder"));
+        circleMemberRepository.save(new CircleMember(careCircle, mainCaregiver, CircleRole.MAIN_CAREGIVER));
+        CareTask task = new CareTask(careCircle, "Already cancelled task", mainCaregiver);
+        task.setStatus(TaskStatus.CANCELLED);
+        CareTask savedTask = careTaskRepository.save(task);
+
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/cancel", careCircle.getId(), savedTask.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(mainCaregiver.getSupabaseUserId())
+                                .claim("email", mainCaregiver.getEmail())
+                        )))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Only open tasks can be cancelled."));
+    }
+
+    @Test
+    void cancelTaskRequiresBearerAuthentication() throws Exception {
+        mockMvc.perform(post("/circles/{circleId}/tasks/{taskId}/cancel", UUID.randomUUID(), UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void completeTaskMarksOpenTaskCompletedWhenCurrentUserIsCollaborator() throws Exception {
         User mainCaregiver = createUser("task-complete-main", "Task Complete Main");
         User collaborator = createUser("task-complete-collaborator", "Task Complete Collaborator");
