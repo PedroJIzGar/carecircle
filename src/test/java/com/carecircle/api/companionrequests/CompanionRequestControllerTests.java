@@ -10,6 +10,11 @@ import com.carecircle.api.elderprofiles.repository.ElderProfileRepository;
 import com.carecircle.api.members.entity.CircleMember;
 import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.repository.CircleMemberRepository;
+import com.carecircle.api.privacy.entity.ConsentRecord;
+import com.carecircle.api.privacy.entity.LegalDocument;
+import com.carecircle.api.privacy.entity.LegalDocumentType;
+import com.carecircle.api.privacy.repository.ConsentRecordRepository;
+import com.carecircle.api.privacy.repository.LegalDocumentRepository;
 import com.carecircle.api.users.entity.User;
 import com.carecircle.api.users.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -56,10 +61,17 @@ class CompanionRequestControllerTests {
     @Autowired
     private CompanionRequestRepository companionRequestRepository;
 
+    @Autowired
+    private LegalDocumentRepository legalDocumentRepository;
+
+    @Autowired
+    private ConsentRecordRepository consentRecordRepository;
+
     @Test
     void createCompanionRequestCreatesRequestedRequestWhenCurrentUserIsMainCaregiver() throws Exception {
         User mainCaregiver = createUser("companion-create-main", "Companion Create Main");
         CareCircle careCircle = createCircleWithMember(mainCaregiver, CircleRole.MAIN_CAREGIVER, "Companion create family");
+        acceptCompanionConsents(mainCaregiver);
         LocalDate requestedForDate = LocalDate.now().plusDays(3);
 
         mockMvc.perform(post("/circles/{circleId}/companion-requests", careCircle.getId())
@@ -104,6 +116,7 @@ class CompanionRequestControllerTests {
         User collaborator = createUser("companion-collab-user", "Companion Collab User");
         CareCircle careCircle = createCircleWithMember(mainCaregiver, CircleRole.MAIN_CAREGIVER, "Companion collaborator family");
         circleMemberRepository.save(new CircleMember(careCircle, collaborator, CircleRole.COLLABORATOR));
+        acceptCompanionConsents(collaborator);
 
         mockMvc.perform(post("/circles/{circleId}/companion-requests", careCircle.getId())
                         .with(jwt().jwt(token -> token
@@ -121,6 +134,33 @@ class CompanionRequestControllerTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.requestedByUserId").value(collaborator.getId().toString()))
                 .andExpect(jsonPath("$.status").value("REQUESTED"));
+    }
+
+    @Test
+    void createCompanionRequestRequiresAcceptedCompanionConsents() throws Exception {
+        User mainCaregiver = createUser("companion-consent-main", "Companion Consent Main");
+        CareCircle careCircle = createCircleWithMember(mainCaregiver, CircleRole.MAIN_CAREGIVER, "Companion consent family");
+
+        mockMvc.perform(post("/circles/{circleId}/companion-requests", careCircle.getId())
+                        .with(jwt().jwt(token -> token
+                                .subject(mainCaregiver.getSupabaseUserId())
+                                .claim("email", mainCaregiver.getEmail())
+                        ))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "requestedForDate": "%s",
+                                  "timeWindow": "Morning",
+                                  "location": "Home"
+                                }
+                                """.formatted(LocalDate.now().plusDays(1))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"))
+                .andExpect(jsonPath("$.message").value(
+                        "Companion request requires accepted companion consent and data sharing consent."
+                ));
+
+        assertThat(companionRequestRepository.findAll()).isEmpty();
     }
 
     @Test
@@ -412,6 +452,18 @@ class CompanionRequestControllerTests {
         elderProfileRepository.save(new ElderProfile(careCircle, name + " Elder"));
         circleMemberRepository.save(new CircleMember(careCircle, user, role));
         return careCircle;
+    }
+
+    private void acceptCompanionConsents(User user) {
+        acceptConsent(user, LegalDocumentType.COMPANION_CONSENT);
+        acceptConsent(user, LegalDocumentType.COMPANION_DATA_SHARING);
+    }
+
+    private void acceptConsent(User user, LegalDocumentType documentType) {
+        LegalDocument legalDocument = legalDocumentRepository
+                .findFirstByDocumentTypeAndActiveTrueOrderByPublishedAtDescCreatedAtDesc(documentType)
+                .orElseThrow();
+        consentRecordRepository.save(new ConsentRecord(user, legalDocument));
     }
 
     private User createUser(String prefix, String fullName) {

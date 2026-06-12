@@ -85,6 +85,32 @@ because account deactivation or deletion is a separate workflow.
 - Revoking a required legal document returns `409`.
 - Missing or invalid bearer token returns the standard API error contract.
 
+## Companion Request Integration
+
+Creating a companion request requires the authenticated user to have accepted
+the active versions of:
+
+- `COMPANION_CONSENT`
+- `COMPANION_DATA_SHARING`
+
+The backend checks this in `CompanionRequestService` after confirming that the
+user can create resources in the care circle and before inserting the companion
+request.
+
+This order matters:
+
+- users outside the circle still receive `404`
+- observers still receive `403`
+- writable members without companion consent receive `409`
+
+The expected client flow before calling `POST /api/circles/{circleId}/companion-requests`
+is:
+
+1. `GET /api/privacy/me`
+2. if needed, `POST /api/privacy/consents` for `COMPANION_CONSENT`
+3. if needed, `POST /api/privacy/consents` for `COMPANION_DATA_SHARING`
+4. create the companion request
+
 ## Audit Rules
 
 Audit records are written for:

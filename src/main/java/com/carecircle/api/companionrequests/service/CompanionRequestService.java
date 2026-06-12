@@ -10,6 +10,8 @@ import com.carecircle.api.companionrequests.repository.CompanionRequestRepositor
 import com.carecircle.api.members.entity.CircleMember;
 import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.service.CircleMembershipAccessService;
+import com.carecircle.api.privacy.entity.LegalDocumentType;
+import com.carecircle.api.privacy.service.ConsentRequirementService;
 import com.carecircle.api.shared.exception.ForbiddenOperationException;
 import com.carecircle.api.shared.exception.ResourceConflictException;
 import com.carecircle.api.shared.exception.ResourceNotFoundException;
@@ -34,6 +36,12 @@ public class CompanionRequestService {
 
     private static final String WRITE_FORBIDDEN_MESSAGE =
             "Only main caregivers and collaborators can manage companion requests.";
+    private static final String COMPANION_CONSENT_REQUIRED_MESSAGE =
+            "Companion request requires accepted companion consent and data sharing consent.";
+    private static final List<LegalDocumentType> REQUIRED_COMPANION_CONSENTS = List.of(
+            LegalDocumentType.COMPANION_CONSENT,
+            LegalDocumentType.COMPANION_DATA_SHARING
+    );
     private static final Comparator<CompanionRequest> REQUEST_LIST_ORDER = Comparator
             .comparingInt((CompanionRequest request) -> getStatusOrder(request.getStatus()))
             .thenComparing(CompanionRequest::getRequestedForDate, Comparator.nullsLast(Comparator.naturalOrder()))
@@ -41,6 +49,7 @@ public class CompanionRequestService {
 
     private final UserService userService;
     private final CircleMembershipAccessService circleMembershipAccessService;
+    private final ConsentRequirementService consentRequirementService;
     private final CompanionRequestRepository companionRequestRepository;
     private final CompanionRequestMapper companionRequestMapper;
 
@@ -60,6 +69,11 @@ public class CompanionRequestService {
     ) {
         User currentUser = userService.findOrCreateUserFromSupabaseClaims(claims);
         CircleMember currentMembership = getWritableMembership(careCircleId, currentUser);
+        consentRequirementService.requireActiveConsents(
+                currentUser,
+                REQUIRED_COMPANION_CONSENTS,
+                COMPANION_CONSENT_REQUIRED_MESSAGE
+        );
 
         CompanionRequest companionRequest = new CompanionRequest(
                 currentMembership.getCareCircle(),
