@@ -9,6 +9,9 @@ import com.carecircle.api.members.entity.CircleMemberStatus;
 import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.mapper.CircleMemberMapper;
 import com.carecircle.api.members.repository.CircleMemberRepository;
+import com.carecircle.api.shared.audit.entity.AuditAction;
+import com.carecircle.api.shared.audit.entity.AuditEntityType;
+import com.carecircle.api.shared.audit.service.AuditLogService;
 import com.carecircle.api.shared.exception.ResourceConflictException;
 import com.carecircle.api.shared.exception.ResourceNotFoundException;
 import com.carecircle.api.users.entity.User;
@@ -21,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -38,6 +42,7 @@ public class CircleMemberService {
     private final UserRepository userRepository;
     private final CircleMembershipAccessService circleMembershipAccessService;
     private final CircleMemberRepository circleMemberRepository;
+    private final AuditLogService auditLogService;
     private final CircleMemberMapper circleMemberMapper;
 
     /**
@@ -94,7 +99,20 @@ public class CircleMemberService {
         }
 
         CircleMember newMember = new CircleMember(currentMembership.getCareCircle(), targetUser, request.role());
-        return circleMemberMapper.toResponse(circleMemberRepository.save(newMember));
+        CircleMember savedMember = circleMemberRepository.save(newMember);
+        auditLogService.record(
+                currentUser,
+                AuditAction.CIRCLE_MEMBER_ADDED,
+                AuditEntityType.CIRCLE_MEMBER,
+                savedMember.getId(),
+                Map.of(
+                        "careCircleId", careCircleId.toString(),
+                        "targetUserId", targetUser.getId().toString(),
+                        "role", savedMember.getRole().name()
+                )
+        );
+
+        return circleMemberMapper.toResponse(savedMember);
     }
 
     /**
@@ -135,8 +153,23 @@ public class CircleMemberService {
             throw new ResourceConflictException("Main caregiver role changes require a dedicated flow.");
         }
 
+        CircleRole previousRole = targetMember.getRole();
         targetMember.setRole(request.role());
-        return circleMemberMapper.toResponse(circleMemberRepository.save(targetMember));
+        CircleMember savedMember = circleMemberRepository.save(targetMember);
+        auditLogService.record(
+                currentUser,
+                AuditAction.CIRCLE_MEMBER_ROLE_UPDATED,
+                AuditEntityType.CIRCLE_MEMBER,
+                savedMember.getId(),
+                Map.of(
+                        "careCircleId", careCircleId.toString(),
+                        "targetUserId", savedMember.getUser().getId().toString(),
+                        "previousRole", previousRole.name(),
+                        "newRole", savedMember.getRole().name()
+                )
+        );
+
+        return circleMemberMapper.toResponse(savedMember);
     }
 
     /**
@@ -171,7 +204,18 @@ public class CircleMemberService {
 
         targetMember.setStatus(CircleMemberStatus.REMOVED);
         targetMember.setRemovedAt(OffsetDateTime.now());
-        circleMemberRepository.save(targetMember);
+        CircleMember savedMember = circleMemberRepository.save(targetMember);
+        auditLogService.record(
+                currentUser,
+                AuditAction.CIRCLE_MEMBER_REMOVED,
+                AuditEntityType.CIRCLE_MEMBER,
+                savedMember.getId(),
+                Map.of(
+                        "careCircleId", careCircleId.toString(),
+                        "targetUserId", savedMember.getUser().getId().toString(),
+                        "role", savedMember.getRole().name()
+                )
+        );
     }
 
     private String normalizeEmail(String email) {

@@ -8,6 +8,9 @@ import com.carecircle.api.members.entity.CircleMember;
 import com.carecircle.api.members.entity.CircleMemberStatus;
 import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.repository.CircleMemberRepository;
+import com.carecircle.api.shared.audit.entity.AuditAction;
+import com.carecircle.api.shared.audit.entity.AuditEntityType;
+import com.carecircle.api.shared.audit.repository.AuditLogRepository;
 import com.carecircle.api.users.entity.User;
 import com.carecircle.api.users.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -51,6 +54,9 @@ class CircleMemberControllerTests {
     @Autowired
     private CircleMemberRepository circleMemberRepository;
 
+    @Autowired
+    private AuditLogRepository auditLogRepository;
+
     @Test
     void removeCircleMemberMarksRegularMemberAsRemovedWhenCurrentUserIsMainCaregiver() throws Exception {
         User mainCaregiver = createUser("member-remove-main", "Remove Main");
@@ -76,6 +82,18 @@ class CircleMemberControllerTests {
                 .satisfies(member -> {
                     assertThat(member.getStatus()).isEqualTo(CircleMemberStatus.REMOVED);
                     assertThat(member.getRemovedAt()).isNotNull();
+                });
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
+                AuditEntityType.CIRCLE_MEMBER.name(),
+                collaboratorMembership.getId()
+        ))
+                .anySatisfy(auditLog -> {
+                    assertThat(auditLog.getAction()).isEqualTo(AuditAction.CIRCLE_MEMBER_REMOVED.name());
+                    assertThat(auditLog.getActorUser().getId()).isEqualTo(mainCaregiver.getId());
+                    assertThat(auditLog.getMetadata())
+                            .containsEntry("careCircleId", careCircle.getId().toString())
+                            .containsEntry("targetUserId", collaborator.getId().toString())
+                            .containsEntry("role", "COLLABORATOR");
                 });
     }
 
@@ -209,6 +227,19 @@ class CircleMemberControllerTests {
                 .get()
                 .extracting(CircleMember::getRole)
                 .isEqualTo(CircleRole.OBSERVER);
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
+                AuditEntityType.CIRCLE_MEMBER.name(),
+                collaboratorMembership.getId()
+        ))
+                .anySatisfy(auditLog -> {
+                    assertThat(auditLog.getAction()).isEqualTo(AuditAction.CIRCLE_MEMBER_ROLE_UPDATED.name());
+                    assertThat(auditLog.getActorUser().getId()).isEqualTo(mainCaregiver.getId());
+                    assertThat(auditLog.getMetadata())
+                            .containsEntry("careCircleId", careCircle.getId().toString())
+                            .containsEntry("targetUserId", collaborator.getId().toString())
+                            .containsEntry("previousRole", "COLLABORATOR")
+                            .containsEntry("newRole", "OBSERVER");
+                });
     }
 
     @Test
@@ -387,6 +418,21 @@ class CircleMemberControllerTests {
                 .get()
                 .extracting(CircleMember::getRole)
                 .isEqualTo(CircleRole.COLLABORATOR);
+        CircleMember savedMembership = circleMemberRepository
+                .findByCareCircle_IdAndUser_Id(careCircle.getId(), targetUser.getId())
+                .orElseThrow();
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
+                AuditEntityType.CIRCLE_MEMBER.name(),
+                savedMembership.getId()
+        ))
+                .anySatisfy(auditLog -> {
+                    assertThat(auditLog.getAction()).isEqualTo(AuditAction.CIRCLE_MEMBER_ADDED.name());
+                    assertThat(auditLog.getActorUser().getId()).isEqualTo(mainCaregiver.getId());
+                    assertThat(auditLog.getMetadata())
+                            .containsEntry("careCircleId", careCircle.getId().toString())
+                            .containsEntry("targetUserId", targetUser.getId().toString())
+                            .containsEntry("role", "COLLABORATOR");
+                });
     }
 
     @Test

@@ -13,6 +13,9 @@ import com.carecircle.api.privacy.repository.ConsentRecordRepository;
 import com.carecircle.api.privacy.repository.LegalDocumentRepository;
 import com.carecircle.api.shared.exception.ResourceConflictException;
 import com.carecircle.api.shared.exception.ResourceNotFoundException;
+import com.carecircle.api.shared.audit.entity.AuditAction;
+import com.carecircle.api.shared.audit.entity.AuditEntityType;
+import com.carecircle.api.shared.audit.service.AuditLogService;
 import com.carecircle.api.users.entity.User;
 import com.carecircle.api.users.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -118,7 +121,16 @@ public class PrivacyService {
 
         ConsentRecord savedConsentRecord = consentRecordRepository.save(consentRecord);
         updateDirectUserAcceptanceTimestamp(currentUser, savedConsentRecord.getConsentType(), savedConsentRecord.getAcceptedAt());
-        auditLogService.recordConsentAccepted(currentUser, savedConsentRecord);
+        auditLogService.record(
+                currentUser,
+                AuditAction.CONSENT_ACCEPTED,
+                AuditEntityType.CONSENT_RECORD,
+                savedConsentRecord.getId(),
+                Map.of(
+                        "documentType", savedConsentRecord.getConsentType().name(),
+                        "version", savedConsentRecord.getLegalDocument().getVersion()
+                )
+        );
 
         return privacyMapper.toConsentRecordResponse(savedConsentRecord);
     }
@@ -147,7 +159,16 @@ public class PrivacyService {
         }
 
         consentRecord.setRevokedAt(OffsetDateTime.now());
-        auditLogService.recordConsentRevoked(currentUser, consentRecord);
+        auditLogService.record(
+                currentUser,
+                AuditAction.CONSENT_REVOKED,
+                AuditEntityType.CONSENT_RECORD,
+                consentRecord.getId(),
+                Map.of(
+                        "documentType", consentRecord.getConsentType().name(),
+                        "version", consentRecord.getLegalDocument().getVersion()
+                )
+        );
 
         return privacyMapper.toConsentRecordResponse(consentRecord);
     }

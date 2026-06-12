@@ -12,6 +12,9 @@ import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.service.CircleMembershipAccessService;
 import com.carecircle.api.privacy.entity.LegalDocumentType;
 import com.carecircle.api.privacy.service.ConsentRequirementService;
+import com.carecircle.api.shared.audit.entity.AuditAction;
+import com.carecircle.api.shared.audit.entity.AuditEntityType;
+import com.carecircle.api.shared.audit.service.AuditLogService;
 import com.carecircle.api.shared.exception.ForbiddenOperationException;
 import com.carecircle.api.shared.exception.ResourceConflictException;
 import com.carecircle.api.shared.exception.ResourceNotFoundException;
@@ -25,6 +28,7 @@ import org.springframework.util.StringUtils;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -50,6 +54,7 @@ public class CompanionRequestService {
     private final UserService userService;
     private final CircleMembershipAccessService circleMembershipAccessService;
     private final ConsentRequirementService consentRequirementService;
+    private final AuditLogService auditLogService;
     private final CompanionRequestRepository companionRequestRepository;
     private final CompanionRequestMapper companionRequestMapper;
 
@@ -85,7 +90,22 @@ public class CompanionRequestService {
         companionRequest.setReason(normalizeOptional(request.reason()));
         companionRequest.setNotes(normalizeOptional(request.notes()));
 
-        return companionRequestMapper.toResponse(companionRequestRepository.save(companionRequest));
+        CompanionRequest savedCompanionRequest = companionRequestRepository.save(companionRequest);
+        auditLogService.record(
+                currentUser,
+                AuditAction.COMPANION_REQUEST_CREATED,
+                AuditEntityType.COMPANION_REQUEST,
+                savedCompanionRequest.getId(),
+                Map.of(
+                        "careCircleId", careCircleId.toString(),
+                        "requestedByUserId", currentUser.getId().toString(),
+                        "requestedForDate", savedCompanionRequest.getRequestedForDate().toString(),
+                        "hasReason", savedCompanionRequest.getReason() != null,
+                        "hasNotes", savedCompanionRequest.getNotes() != null
+                )
+        );
+
+        return companionRequestMapper.toResponse(savedCompanionRequest);
     }
 
     /**
@@ -135,7 +155,21 @@ public class CompanionRequestService {
         companionRequest.setCancelledAt(OffsetDateTime.now());
         companionRequest.setCancelledByUser(currentUser);
 
-        return companionRequestMapper.toResponse(companionRequestRepository.save(companionRequest));
+        CompanionRequest savedCompanionRequest = companionRequestRepository.save(companionRequest);
+        auditLogService.record(
+                currentUser,
+                AuditAction.COMPANION_REQUEST_CANCELLED,
+                AuditEntityType.COMPANION_REQUEST,
+                savedCompanionRequest.getId(),
+                Map.of(
+                        "careCircleId", careCircleId.toString(),
+                        "requestedByUserId", savedCompanionRequest.getRequestedByUser().getId().toString(),
+                        "cancelledByUserId", currentUser.getId().toString(),
+                        "newStatus", savedCompanionRequest.getStatus().name()
+                )
+        );
+
+        return companionRequestMapper.toResponse(savedCompanionRequest);
     }
 
     private CircleMember getWritableMembership(UUID careCircleId, User currentUser) {

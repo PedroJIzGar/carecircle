@@ -8,6 +8,9 @@ import com.carecircle.api.members.entity.CircleMember;
 import com.carecircle.api.members.entity.CircleMemberStatus;
 import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.repository.CircleMemberRepository;
+import com.carecircle.api.shared.audit.entity.AuditAction;
+import com.carecircle.api.shared.audit.entity.AuditEntityType;
+import com.carecircle.api.shared.audit.repository.AuditLogRepository;
 import com.carecircle.api.users.entity.User;
 import com.carecircle.api.users.repository.UserRepository;
 import com.jayway.jsonpath.JsonPath;
@@ -51,6 +54,9 @@ class CareCircleControllerTests {
     @Autowired
     private CircleMemberRepository circleMemberRepository;
 
+    @Autowired
+    private AuditLogRepository auditLogRepository;
+
     @Test
     void updateCareCircleUpdatesBasicsWhenCurrentUserIsMainCaregiver() throws Exception {
         User currentUser = userRepository.save(new User(
@@ -84,6 +90,15 @@ class CareCircleControllerTests {
         CareCircle updatedCircle = careCircleRepository.findById(careCircle.getId()).orElseThrow();
         assertThat(updatedCircle.getName()).isEqualTo("Updated family");
         assertThat(updatedCircle.getDescription()).isEqualTo("Updated description");
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
+                AuditEntityType.CARE_CIRCLE.name(),
+                careCircle.getId()
+        ))
+                .anySatisfy(auditLog -> {
+                    assertThat(auditLog.getAction()).isEqualTo(AuditAction.CARE_CIRCLE_UPDATED.name());
+                    assertThat(auditLog.getActorUser().getId()).isEqualTo(currentUser.getId());
+                    assertThat(auditLog.getMetadata()).containsKey("changedFields");
+                });
     }
 
     @Test
@@ -396,6 +411,18 @@ class CareCircleControllerTests {
         assertThat(user.getEmail()).isEqualTo(email);
         assertThat(elderProfile.getFullName()).isEqualTo("Maria Garcia");
         assertThat(member.getRole()).isEqualTo(CircleRole.MAIN_CAREGIVER);
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
+                AuditEntityType.CARE_CIRCLE.name(),
+                careCircleId
+        ))
+                .anySatisfy(auditLog -> {
+                    assertThat(auditLog.getAction()).isEqualTo(AuditAction.CARE_CIRCLE_CREATED.name());
+                    assertThat(auditLog.getActorUser().getId()).isEqualTo(user.getId());
+                    assertThat(auditLog.getMetadata())
+                            .containsEntry("elderProfileId", elderProfile.getId().toString())
+                            .containsEntry("mainCaregiverMembershipId", member.getId().toString())
+                            .containsEntry("creatorRole", "MAIN_CAREGIVER");
+                });
     }
 
     @Test

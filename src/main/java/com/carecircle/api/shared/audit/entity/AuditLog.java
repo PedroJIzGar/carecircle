@@ -1,4 +1,4 @@
-package com.carecircle.api.privacy.entity;
+package com.carecircle.api.shared.audit.entity;
 
 import com.carecircle.api.users.entity.User;
 import jakarta.persistence.Column;
@@ -93,14 +93,14 @@ public class AuditLog {
      */
     public AuditLog(
             User actorUser,
-            String action,
-            String entityType,
+            AuditAction action,
+            AuditEntityType entityType,
             UUID entityId,
             Map<String, Object> metadata
     ) {
         this.actorUser = actorUser;
-        this.action = action;
-        this.entityType = entityType;
+        this.action = action.name();
+        this.entityType = entityType.name();
         this.entityId = entityId;
         this.metadata = metadata == null ? new LinkedHashMap<>() : new LinkedHashMap<>(metadata);
     }

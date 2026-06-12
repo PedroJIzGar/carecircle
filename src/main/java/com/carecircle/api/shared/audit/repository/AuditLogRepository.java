@@ -1,6 +1,6 @@
-package com.carecircle.api.privacy.repository;
+package com.carecircle.api.shared.audit.repository;
 
-import com.carecircle.api.privacy.entity.AuditLog;
+import com.carecircle.api.shared.audit.entity.AuditLog;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -18,4 +18,13 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      * @return matching audit logs.
      */
     List<AuditLog> findByActionOrderByOccurredAtDesc(String action);
+
+    /**
+     * Returns audit entries for an entity ordered from newest to oldest.
+     *
+     * @param entityType audited entity type.
+     * @param entityId audited entity identifier.
+     * @return matching audit logs.
+     */
+    List<AuditLog> findByEntityTypeAndEntityIdOrderByOccurredAtDesc(String entityType, UUID entityId);
 }

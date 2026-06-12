@@ -15,6 +15,9 @@ import com.carecircle.api.privacy.entity.LegalDocument;
 import com.carecircle.api.privacy.entity.LegalDocumentType;
 import com.carecircle.api.privacy.repository.ConsentRecordRepository;
 import com.carecircle.api.privacy.repository.LegalDocumentRepository;
+import com.carecircle.api.shared.audit.entity.AuditAction;
+import com.carecircle.api.shared.audit.entity.AuditEntityType;
+import com.carecircle.api.shared.audit.repository.AuditLogRepository;
 import com.carecircle.api.users.entity.User;
 import com.carecircle.api.users.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -67,6 +70,9 @@ class CompanionRequestControllerTests {
     @Autowired
     private ConsentRecordRepository consentRecordRepository;
 
+    @Autowired
+    private AuditLogRepository auditLogRepository;
+
     @Test
     void createCompanionRequestCreatesRequestedRequestWhenCurrentUserIsMainCaregiver() throws Exception {
         User mainCaregiver = createUser("companion-create-main", "Companion Create Main");
@@ -107,6 +113,21 @@ class CompanionRequestControllerTests {
                     assertThat(request.getTimeWindow()).isEqualTo("Morning");
                     assertThat(request.getLocation()).isEqualTo("Home visit");
                     assertThat(request.getRequestedByUser().getId()).isEqualTo(mainCaregiver.getId());
+                });
+        CompanionRequest savedRequest = companionRequestRepository.findAll().getFirst();
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
+                AuditEntityType.COMPANION_REQUEST.name(),
+                savedRequest.getId()
+        ))
+                .anySatisfy(auditLog -> {
+                    assertThat(auditLog.getAction()).isEqualTo(AuditAction.COMPANION_REQUEST_CREATED.name());
+                    assertThat(auditLog.getActorUser().getId()).isEqualTo(mainCaregiver.getId());
+                    assertThat(auditLog.getMetadata())
+                            .containsEntry("careCircleId", careCircle.getId().toString())
+                            .containsEntry("requestedByUserId", mainCaregiver.getId().toString())
+                            .containsEntry("requestedForDate", requestedForDate.toString())
+                            .containsEntry("hasReason", true)
+                            .containsEntry("hasNotes", true);
                 });
     }
 
@@ -361,6 +382,19 @@ class CompanionRequestControllerTests {
                     assertThat(cancelled.getStatus()).isEqualTo(CompanionRequestStatus.CANCELLED);
                     assertThat(cancelled.getCancelledAt()).isNotNull();
                     assertThat(cancelled.getCancelledByUser().getId()).isEqualTo(collaborator.getId());
+                });
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByOccurredAtDesc(
+                AuditEntityType.COMPANION_REQUEST.name(),
+                request.getId()
+        ))
+                .anySatisfy(auditLog -> {
+                    assertThat(auditLog.getAction()).isEqualTo(AuditAction.COMPANION_REQUEST_CANCELLED.name());
+                    assertThat(auditLog.getActorUser().getId()).isEqualTo(collaborator.getId());
+                    assertThat(auditLog.getMetadata())
+                            .containsEntry("careCircleId", careCircle.getId().toString())
+                            .containsEntry("requestedByUserId", mainCaregiver.getId().toString())
+                            .containsEntry("cancelledByUserId", collaborator.getId().toString())
+                            .containsEntry("newStatus", "CANCELLED");
                 });
     }
 

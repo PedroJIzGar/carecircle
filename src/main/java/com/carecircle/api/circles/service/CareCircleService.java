@@ -14,6 +14,9 @@ import com.carecircle.api.members.entity.CircleMemberStatus;
 import com.carecircle.api.members.entity.CircleRole;
 import com.carecircle.api.members.repository.CircleMemberRepository;
 import com.carecircle.api.members.service.CircleMembershipAccessService;
+import com.carecircle.api.shared.audit.entity.AuditAction;
+import com.carecircle.api.shared.audit.entity.AuditEntityType;
+import com.carecircle.api.shared.audit.service.AuditLogService;
 import com.carecircle.api.users.entity.User;
 import com.carecircle.api.users.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,6 +43,7 @@ public class CareCircleService {
     private final ElderProfileRepository elderProfileRepository;
     private final CircleMemberRepository circleMemberRepository;
     private final CircleMembershipAccessService circleMembershipAccessService;
+    private final AuditLogService auditLogService;
     private final CareCircleMapper careCircleMapper;
 
     /**
@@ -73,6 +78,18 @@ public class CareCircleService {
 
         CircleMember currentMembership = circleMemberRepository.save(
                 new CircleMember(savedCareCircle, currentUser, CircleRole.MAIN_CAREGIVER)
+        );
+
+        auditLogService.record(
+                currentUser,
+                AuditAction.CARE_CIRCLE_CREATED,
+                AuditEntityType.CARE_CIRCLE,
+                savedCareCircle.getId(),
+                Map.of(
+                        "elderProfileId", savedElderProfile.getId().toString(),
+                        "mainCaregiverMembershipId", currentMembership.getId().toString(),
+                        "creatorRole", currentMembership.getRole().name()
+                )
         );
 
         return careCircleMapper.toResponse(savedCareCircle, savedElderProfile, currentMembership);
@@ -177,7 +194,29 @@ public class CareCircleService {
         ElderProfile elderProfile = elderProfileRepository.findByCareCircle_Id(careCircleId)
                 .orElseThrow(() -> new IllegalStateException("Care circle is missing its elder profile."));
 
+        auditLogService.record(
+                currentUser,
+                AuditAction.CARE_CIRCLE_UPDATED,
+                AuditEntityType.CARE_CIRCLE,
+                savedCareCircle.getId(),
+                Map.of(
+                        "changedFields", getProvidedUpdateFields(request),
+                        "actorMembershipId", membership.getId().toString()
+                )
+        );
+
         return careCircleMapper.toResponse(savedCareCircle, elderProfile, membership);
+    }
+
+    private List<String> getProvidedUpdateFields(UpdateCareCircleRequest request) {
+        List<String> changedFields = new ArrayList<>();
+        if (request.name() != null) {
+            changedFields.add("name");
+        }
+        if (request.description() != null) {
+            changedFields.add("description");
+        }
+        return changedFields;
     }
 
     private ElderProfile getRequiredElderProfile(
